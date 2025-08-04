@@ -9,17 +9,20 @@ import { ComprasModule } from './compras/compras.module';
 import { ProveedoresModule } from './proveedores/proveedores.module';
 import { RecetasModule } from './recetas/recetas.module';
 import { RecetasIngredientesModule } from './recetas_ingredientes/recetas_ingredientes.module';
-
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: 'localhost',
-      port: 5432,
-      username: 'postgres',
-      password: '0980993908P',
-      database: 'fichas_db',
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT ? +process.env.DB_PORT : 5432,
+      username: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
       synchronize: true, // ❗Solo para desarrollo
       autoLoadEntities: true,
     }),
