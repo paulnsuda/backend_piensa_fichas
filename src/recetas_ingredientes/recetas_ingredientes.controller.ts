@@ -9,12 +9,14 @@ import {
   Patch,
   Query,
 } from '@nestjs/common';
-import { RecetaIngredienteService } from './recetas_ingredientes.service';
+import { RecetasIngredientesService } from './recetas_ingredientes.service';
+
 import { CreateRecetaIngredienteDto } from './dto/create-receta_ingrediente.dto';
 
 @Controller('recetas-ingredientes')
 export class RecetaIngredienteController {
-  constructor(private readonly service: RecetaIngredienteService) {}
+ constructor(private readonly service: RecetasIngredientesService) {}
+
 
   @Post()
   create(@Body() dto: CreateRecetaIngredienteDto) {

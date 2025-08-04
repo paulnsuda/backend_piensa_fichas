@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RecetaIngrediente } from './entities/receta_ingrediente.entity';
-import { RecetaIngredienteService } from './recetas_ingredientes.service';
+import { RecetasIngredientesService } from './recetas_ingredientes.service'; // ✅ Correcto
+
 import { RecetaIngredienteController } from './recetas_ingredientes.controller';
 
 import { Ingrediente } from '../ingredientes/entities/ingrediente.entity';
@@ -12,6 +13,6 @@ import { Receta } from '../recetas/entities/receta.entity';
     TypeOrmModule.forFeature([RecetaIngrediente, Ingrediente, Receta]) // <-- Asegúrate de que Ingrediente esté aquí
   ],
   controllers: [RecetaIngredienteController],
-  providers: [RecetaIngredienteService],
+  providers: [RecetasIngredientesService],
 })
 export class RecetasIngredientesModule {}

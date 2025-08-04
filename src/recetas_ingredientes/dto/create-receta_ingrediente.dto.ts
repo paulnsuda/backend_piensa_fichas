@@ -9,5 +9,5 @@ export class CreateRecetaIngredienteDto {
   id_ingrediente: number;
 
   @IsNumber()
-  cantidad_usada: number; // en kilogramos
+  cantidad_usada: number;
 }

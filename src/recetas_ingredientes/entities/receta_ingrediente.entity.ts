@@ -1,4 +1,3 @@
-// src/recetas_ingredientes/entities/receta_ingrediente.entity.ts
 import {
   Entity,
   PrimaryColumn,

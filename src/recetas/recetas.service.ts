@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Receta } from './entities/receta.entity';
@@ -9,34 +9,59 @@ import { UpdateRecetaDto } from './dto/update-receta.dto';
 export class RecetasService {
   constructor(
     @InjectRepository(Receta)
-    private readonly recetaRepo: Repository<Receta>,
+    private readonly recetaRepository: Repository<Receta>
   ) {}
 
+  // Crear receta
   create(dto: CreateRecetaDto) {
-    const nueva = this.recetaRepo.create(dto);
-    return this.recetaRepo.save(nueva);
+    const nueva = this.recetaRepository.create(dto);
+    return this.recetaRepository.save(nueva);
   }
 
+  // Listar todas las recetas
   findAll() {
-    return this.recetaRepo.find();
+    return this.recetaRepository.find();
   }
 
-  findOne(id: number) {
-    return this.recetaRepo.findOne({ where: { id } });
+  // Obtener receta con sus ingredientes (para ficha técnica)
+  async findOne(id: number) {
+    const receta = await this.recetaRepository.findOne({
+      where: { id },
+      relations: ['ingredientesRelacionados', 'ingredientesRelacionados.ingrediente'],
+    });
+
+    if (!receta) {
+      throw new NotFoundException(`Receta con ID ${id} no encontrada`);
+    }
+
+    return receta;
   }
 
-  async findAllConIngredientes() {
-    return this.recetaRepo.find({
+  // Obtener todas las recetas con ingredientes (opcional)
+  findAllConIngredientes() {
+    return this.recetaRepository.find({
       relations: ['ingredientesRelacionados', 'ingredientesRelacionados.ingrediente'],
     });
   }
 
+  // Actualizar receta
   async update(id: number, dto: UpdateRecetaDto) {
-    await this.recetaRepo.update(id, dto);
-    return this.findOne(id);
+    const receta = await this.recetaRepository.preload({
+      id,
+      ...dto,
+    });
+    if (!receta) {
+      throw new NotFoundException(`Receta con ID ${id} no encontrada`);
+    }
+    return this.recetaRepository.save(receta);
   }
 
+  // Eliminar receta
   async remove(id: number) {
-    return this.recetaRepo.delete(id);
+    const receta = await this.recetaRepository.findOneBy({ id });
+    if (!receta) {
+      throw new NotFoundException(`Receta con ID ${id} no encontrada`);
+    }
+    return this.recetaRepository.remove(receta);
   }
 }
