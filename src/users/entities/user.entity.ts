@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 import { Rol } from '../enums/rol.enum';
+import { Receta } from '../../recetas/entities/receta.entity'; 
 
 @Entity()
 export class User {
@@ -15,7 +16,11 @@ export class User {
   @Column({
     type: 'enum',
     enum: Rol,
-    default: Rol.ALUMNO, // valor por defecto
+    default: Rol.ALUMNO,
   })
   rol: Rol;
+
+  // 👇 Relación: Un usuario tiene muchas recetas
+  @OneToMany(() => Receta, (receta) => receta.usuario)
+  recetas: Receta[];
 }

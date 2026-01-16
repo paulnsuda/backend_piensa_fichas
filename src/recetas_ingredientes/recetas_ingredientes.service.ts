@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { RecetaIngrediente } from './entities/receta_ingrediente.entity';
+import { RecetaIngrediente } from './entities/receta_ingrediente.entity'; 
 import { CreateRecetaIngredienteDto } from './dto/create-receta_ingrediente.dto';
 import { Receta } from '../recetas/entities/receta.entity';
 import { Ingrediente } from '../ingredientes/entities/ingrediente.entity';
@@ -19,15 +19,16 @@ export class RecetasIngredientesService {
     private readonly ingredienteRepo: Repository<Ingrediente>,
   ) {}
 
+  // 1. CREAR
   async create(dto: CreateRecetaIngredienteDto) {
     const ingrediente = await this.ingredienteRepo.findOneBy({ id: dto.id_ingrediente });
     if (!ingrediente) throw new NotFoundException('Ingrediente no encontrado');
 
-    const costo = ingrediente.precioKg * dto.cantidad_usada;
-
+    // Corrección: Usamos la relación directa, sin 'costo_ingrediente'
     const nuevaRelacion = this.repo.create({
-      ...dto,
-      costo_ingrediente: costo,
+      cantidad_usada: dto.cantidad_usada,
+      receta: { id: dto.id_receta },
+      ingrediente: { id: dto.id_ingrediente }
     });
 
     await this.repo.save(nuevaRelacion);
@@ -35,49 +36,74 @@ export class RecetasIngredientesService {
     return { mensaje: 'Ingrediente agregado correctamente' };
   }
 
+  // 2. LISTAR
   findAll() {
     return this.repo.find({ relations: ['receta', 'ingrediente'] });
   }
 
-  findByReceta(id_receta: number) {
+  // 3. BUSCAR POR RECETA
+  findByReceta(idReceta: number) {
     return this.repo.find({
-      where: { id_receta },
+      where: { 
+        receta: { id: idReceta } // Corrección: Búsqueda por relación
+      },
       relations: ['ingrediente'],
     });
   }
 
-  async remove(id_receta: number, id_ingrediente: number) {
-    await this.repo.delete({ id_receta, id_ingrediente });
-    await this.actualizarCostoTotal(id_receta);
-    return { mensaje: 'Ingrediente eliminado de la receta' };
+  // 4. ELIMINAR
+  async remove(idReceta: number, idIngrediente: number) {
+    const relacion = await this.repo.findOne({
+      where: {
+        receta: { id: idReceta },
+        ingrediente: { id: idIngrediente }
+      }
+    });
+
+    if (relacion) {
+      await this.repo.remove(relacion);
+      await this.actualizarCostoTotal(idReceta);
+      return { mensaje: 'Ingrediente eliminado de la receta' };
+    }
+    throw new NotFoundException('Ingrediente no encontrado en esta receta');
   }
 
-  async updateCantidad(id_receta: number, id_ingrediente: number, nuevaCantidad: number) {
-    const relacion = await this.repo.findOneBy({ id_receta, id_ingrediente });
+  // 5. ACTUALIZAR CANTIDAD
+  async updateCantidad(idReceta: number, idIngrediente: number, nuevaCantidad: number) {
+    const relacion = await this.repo.findOne({
+      where: {
+        receta: { id: idReceta },
+        ingrediente: { id: idIngrediente }
+      }
+    });
+
     if (!relacion) throw new NotFoundException('Relación no encontrada');
 
-    const ingrediente = await this.ingredienteRepo.findOneBy({ id: id_ingrediente });
-    if (!ingrediente) throw new NotFoundException('Ingrediente no encontrado');
-
     relacion.cantidad_usada = nuevaCantidad;
-    relacion.costo_ingrediente = ingrediente.precioKg * nuevaCantidad;
+    // Ya no guardamos costo_ingrediente aquí
 
     await this.repo.save(relacion);
-    await this.actualizarCostoTotal(id_receta);
+    await this.actualizarCostoTotal(idReceta);
 
     return { mensaje: 'Cantidad actualizada correctamente' };
   }
 
-  async actualizarCostoTotal(id_receta: number) {
-    const receta = await this.recetaRepo.findOneBy({ id: id_receta });
-    if (!receta) throw new NotFoundException('Receta no encontrada');
+  // 6. ACTUALIZAR COSTO TOTAL (La corrección del snake_case)
+  async actualizarCostoTotal(idReceta: number) {
+    const ingredientesRelacion = await this.repo.find({
+      where: { receta: { id: idReceta } },
+      relations: ['ingrediente'] 
+    });
 
-    const ingredientes = await this.repo.find({ where: { id_receta } });
+    const nuevoCostoTotal = ingredientesRelacion.reduce((acc, item) => {
+      const precio = Number(item.ingrediente.precioKg || 0);
+      const cantidad = Number(item.cantidad_usada || 0);
+      return acc + (cantidad * precio);
+    }, 0);
 
-    const nuevoCostoTotal = ingredientes.reduce((acc, ing) => acc + Number(ing.costo_ingrediente || 0), 0);
-
-    // Guardamos con 2 decimales como número
-    receta.costoReceta = Math.round(nuevoCostoTotal * 100) / 100;
-    await this.recetaRepo.save(receta);
+    // Corrección: costoReceta (camelCase)
+    await this.recetaRepo.update(idReceta, {
+      costoReceta: Math.round(nuevoCostoTotal * 100) / 100 
+    });
   }
 }

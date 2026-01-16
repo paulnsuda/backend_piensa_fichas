@@ -1,4 +1,3 @@
-// backend/src/ingredientes/ingredientes.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -20,14 +19,9 @@ export class IngredientesService {
   async create(dto: CreateIngredienteDto) {
     const pesoKgCalculado = this.convertirAKg(dto.peso, dto.unidad_medida);
 
-    const compra = dto.id_compra
-      ? await this.compraRepository.findOneBy({ id: dto.id_compra })
-      : null;
-
-    if (dto.id_compra && !compra) {
-      throw new NotFoundException(`Compra con id ${dto.id_compra} no encontrada`);
-    }
-
+    // Nota: Eliminé la lógica de buscar compra aquí porque ahora es al revés:
+    // Las compras crean stock, no creamos ingredientes vinculados a una compra vieja manualmente.
+    
     const ingrediente = this.ingredienteRepository.create({
       nombre_ingrediente: dto.nombre_ingrediente,
       unidad_medida: dto.unidad_medida,
@@ -35,20 +29,22 @@ export class IngredientesService {
       pesoKg: pesoKgCalculado,
       precioKg: dto.precioKg,
       grupo: dto.grupo,
-      compra: compra ?? undefined,
     });
 
     return this.ingredienteRepository.save(ingrediente);
   }
 
   findAll() {
-    return this.ingredienteRepository.find({ relations: ['compra'] });
+    // TypeORM automáticamente filtra los que tienen deletedAt != null
+    return this.ingredienteRepository.find({ 
+      order: { nombre_ingrediente: 'ASC' } 
+    });
   }
 
   async findOne(id: number) {
     const ingrediente = await this.ingredienteRepository.findOne({
       where: { id },
-      relations: ['compra'],
+      relations: ['compras'], // Para ver el historial de compras de este ingrediente
     });
 
     if (!ingrediente) {
@@ -59,49 +55,40 @@ export class IngredientesService {
   }
 
   async update(id: number, dto: UpdateIngredienteDto) {
-    const ingrediente = await this.ingredienteRepository.findOne({
-      where: { id },
-      relations: ['compra'],
-    });
+    const ingrediente = await this.ingredienteRepository.findOneBy({ id });
+    if (!ingrediente) throw new NotFoundException('Ingrediente no encontrado');
 
-    if (!ingrediente) {
-      throw new NotFoundException('Ingrediente no encontrado');
+    // Actualizamos campos básicos
+    if (dto.nombre_ingrediente) ingrediente.nombre_ingrediente = dto.nombre_ingrediente;
+    if (dto.unidad_medida) ingrediente.unidad_medida = dto.unidad_medida;
+    if (dto.grupo) ingrediente.grupo = dto.grupo;
+    
+    // Si editan peso o precio manualmente (Ajuste de inventario)
+    if (dto.peso !== undefined) {
+      ingrediente.peso = dto.peso;
+      ingrediente.pesoKg = this.convertirAKg(dto.peso, ingrediente.unidad_medida);
     }
-
-    if (dto.id_compra) {
-      const compra = await this.compraRepository.findOneBy({ id: dto.id_compra });
-      if (!compra) {
-        throw new NotFoundException(`Compra con id ${dto.id_compra} no encontrada`);
-      }
-      ingrediente.compra = compra;
-    }
-
-    ingrediente.nombre_ingrediente = dto.nombre_ingrediente ?? ingrediente.nombre_ingrediente;
-    ingrediente.unidad_medida = dto.unidad_medida ?? ingrediente.unidad_medida;
-    ingrediente.peso = dto.peso ?? ingrediente.peso;
-    ingrediente.precioKg = dto.precioKg ?? ingrediente.precioKg;
-    ingrediente.pesoKg = this.convertirAKg(ingrediente.peso, ingrediente.unidad_medida);
-    ingrediente.grupo = dto.grupo ?? ingrediente.grupo;
+    if (dto.precioKg !== undefined) ingrediente.precioKg = dto.precioKg;
 
     return this.ingredienteRepository.save(ingrediente);
   }
 
+  // 👇 AQUÍ ESTÁ EL CAMBIO CLAVE
   async remove(id: number) {
-    const ingrediente = await this.ingredienteRepository.findOneBy({ id });
+    // Usamos softDelete en lugar de delete/remove
+    const result = await this.ingredienteRepository.softDelete(id);
 
-    if (!ingrediente) {
+    if (result.affected === 0) {
       throw new NotFoundException(`Ingrediente con id ${id} no encontrado`);
     }
 
-    return this.ingredienteRepository.remove(ingrediente);
+    return { mensaje: 'Ingrediente eliminado correctamente (se mantiene en histórico)' };
   }
 
   private convertirAKg(peso: number, unidad: string): number {
-    switch (unidad) {
-      case 'g': return peso / 1000;
-      case 'lb': return peso * 0.453592;
-      case 'kg': return peso;
-      default: return 0;
-    }
+    const u = unidad.toLowerCase();
+    if (u === 'g' || u === 'gramos' || u === 'ml') return peso / 1000;
+    if (u === 'lb' || u === 'libras') return peso * 0.453592;
+    return peso; // kg, l, u
   }
 }

@@ -1,32 +1,27 @@
-import {
-  Entity,
-  PrimaryColumn,
-  ManyToOne,
-  JoinColumn,
-  Column,
-} from 'typeorm';
-import { Receta } from '../../recetas/entities/receta.entity';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+// Usamos "import type" para romper el ciclo de dependencias (Solución a la línea roja)
+import { Receta } from '../../recetas/entities/receta.entity'; 
 import { Ingrediente } from '../../ingredientes/entities/ingrediente.entity';
 
 @Entity('recetas_ingredientes')
 export class RecetaIngrediente {
-  @PrimaryColumn()
-  id_receta: number;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-  @PrimaryColumn()
-  id_ingrediente: number;
-
-  @ManyToOne(() => Receta, receta => receta.ingredientesRelacionados, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'id_receta' })
-  receta: Receta;
-
-  @ManyToOne(() => Ingrediente, ingrediente => ingrediente.recetasRelacionadas, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'id_ingrediente' })
-  ingrediente: Ingrediente;
-
-  @Column('decimal', { precision: 10, scale: 4 })
+  @Column('decimal', { precision: 10, scale: 3 }) // Agregamos decimales por si usas 0.5 kg
   cantidad_usada: number;
 
-  @Column('decimal', { precision: 10, scale: 4 })
-  costo_ingrediente: number;
+  // 👇 ELIMINAMOS las columnas explícitas 'id_receta' e 'id_ingrediente'
+  // porque ya están incluidas dentro de las relaciones de abajo.
+
+  // Relaciones
+  @ManyToOne('Receta', (receta: Receta) => receta.recetasIngredientes, {
+    onDelete: 'CASCADE', // Si borras la receta, se borran sus ingredientes
+  })
+  @JoinColumn({ name: 'id_receta' }) // Aquí se crea la columna física 'id_receta'
+  receta: Receta;
+
+  @ManyToOne(() => Ingrediente)
+  @JoinColumn({ name: 'id_ingrediente' }) // Aquí se crea la columna física 'id_ingrediente'
+  ingrediente: Ingrediente;
 }

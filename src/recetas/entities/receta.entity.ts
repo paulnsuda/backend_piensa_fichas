@@ -1,29 +1,44 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToOne, JoinColumn, DeleteDateColumn, CreateDateColumn } from 'typeorm';
 import { RecetaIngrediente } from '../../recetas_ingredientes/entities/receta_ingrediente.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('recetas')
 export class Receta {
   @PrimaryGeneratedColumn()
   id: number;
 
+  // 👇 Fíjate: name='nombre_receta' (BD), pero la propiedad es nombreReceta (Código)
   @Column({ name: 'nombre_receta', type: 'varchar', length: 200 })
   nombreReceta: string;
 
-  @Column({ name: 'tipo_plato', type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'tipo_plato', nullable: true })
   tipoPlato: string;
 
-  @Column({ name: 'tamano_porcion', type: 'decimal', precision: 8, scale: 2, nullable: true })
-  tamanoPorcion: number;
+  @Column({ name: 'num_porciones', type: 'int', nullable: true })
+  numPorciones: number;
 
-  @Column({ name: 'numero_porciones', type: 'int', nullable: true })
-  numeroPorciones: number;
-
-  @Column({ name: 'costo_receta', type: 'decimal', precision: 8, scale: 2, nullable: true })
-  costoReceta: number;
+  @Column({ name: 'tamano_porcion', nullable: true })
+  tamanoPorcion: string;
 
   @Column({ type: 'text', nullable: true })
   procedimiento: string;
 
-  @OneToMany(() => RecetaIngrediente, ri => ri.receta, { eager: true })
-  ingredientesRelacionados: RecetaIngrediente[];
+  @Column({ name: 'costo_receta', type: 'decimal', precision: 10, scale: 2, default: 0 })
+  costoReceta: number;
+
+  @CreateDateColumn()
+  fecha_creacion: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date;
+
+  // RELACIONES
+  @OneToMany(() => RecetaIngrediente, (recetaIngrediente) => recetaIngrediente.receta, {
+    cascade: true, // Esto permite guardar ingredientes automáticamente
+  })
+  recetasIngredientes: RecetaIngrediente[];
+
+  @ManyToOne(() => User, (user) => user.recetas)
+  @JoinColumn({ name: 'usuario_id' })
+  usuario: User;
 }

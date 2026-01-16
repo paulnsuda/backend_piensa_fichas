@@ -1,4 +1,4 @@
-// src/recetas_ingredientes/dto/create-receta_ingrediente.dto.ts
+// src/recetas_ingredientes/dto/create-receta-ingrediente.dto.ts
 import { IsNumber } from 'class-validator';
 
 export class CreateRecetaIngredienteDto {
