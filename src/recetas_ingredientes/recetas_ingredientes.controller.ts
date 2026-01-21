@@ -41,6 +41,8 @@ export class RecetaIngredienteController {
     return this.service.remove(+id_receta, +id_ingrediente);
   }
 
+  
+
   @Patch('actualizar-cantidad')
   updateCantidad(
     @Query('id_receta') idReceta: number,

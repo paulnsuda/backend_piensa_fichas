@@ -7,10 +7,16 @@ class IngredienteRelation {
   id: number;
 }
 
-// 2. Definimos el item de la lista (Cantidad + Ingrediente)
+// 2. Definimos el item de la lista (Cantidad + Ingrediente + Costo Histórico)
 export class CreateRecetaIngredienteItemDto {
   @IsNumber()
   cantidad_usada: number;
+
+  // 👇 AQUÍ AGREGAMOS EL CAMPO NUEVO
+  // Esto permite recibir el precio "congelado" desde el Frontend
+  @IsOptional() 
+  @IsNumber()
+  costo_historico?: number;
 
   @ValidateNested()
   @Type(() => IngredienteRelation)

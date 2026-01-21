@@ -36,6 +36,6 @@ export class Ingrediente {
   compras: Compra[];
 
   // 👇 ESTA ES LA LÍNEA QUE TE FALTA Y CAUSA EL ERROR
-  @OneToMany(() => RecetaIngrediente, (ri) => ri.ingrediente)
-  recetasRelacionadas: RecetaIngrediente[];
+  @OneToMany(() => RecetaIngrediente, (recetaIngrediente) => recetaIngrediente.ingrediente)
+  recetasIngredientes: RecetaIngrediente[];
 }
