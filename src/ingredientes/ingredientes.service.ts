@@ -16,35 +16,52 @@ export class IngredientesService {
     private readonly compraRepository: Repository<Compra>,
   ) {}
 
+  // =================================================================
+  // 1. CREAR INGREDIENTE (CON LÓGICA DE ALTA COCINA)
+  // =================================================================
   async create(dto: CreateIngredienteDto) {
-    const pesoKgCalculado = this.convertirAKg(dto.peso, dto.unidad_medida);
+    // 1. Valores por defecto para la lógica nueva
+    const rendimiento = dto.rendimiento || 100;    // Si no envía, rinde 100%
+    const pesoUnitario = dto.peso_unitario || 1;   // Si es Kg/L, pesa 1. Si es Unidad, lo que diga el usuario.
 
-    // Nota: Eliminé la lógica de buscar compra aquí porque ahora es al revés:
-    // Las compras crean stock, no creamos ingredientes vinculados a una compra vieja manualmente.
-    
+    // 2. Calculamos el peso total estandarizado a Kg
+    // (Ej: Si meten 5 "Unidades" de 1.5kg c/u -> pesoKgCalculado = 7.5)
+    const pesoKgCalculado = this.convertirAKg(dto.peso || 0, dto.unidad_medida, pesoUnitario);
+
     const ingrediente = this.ingredienteRepository.create({
       nombre_ingrediente: dto.nombre_ingrediente,
       unidad_medida: dto.unidad_medida,
       peso: dto.peso,
-      pesoKg: pesoKgCalculado,
-      precioKg: dto.precioKg,
+      
+      // Datos nuevos
+      peso_unitario: pesoUnitario,
+      pesoKg: pesoKgCalculado, // Stock normalizado
+      precioKg: dto.precioKg,  // Precio de Compra
+      rendimiento: rendimiento,// Merma
+      
       grupo: dto.grupo,
     });
 
-    return this.ingredienteRepository.save(ingrediente);
+    // Nota: Al hacer .save(), la ENTITY ejecuta @BeforeInsert y calcula 'precio_real' automáticamente.
+    return await this.ingredienteRepository.save(ingrediente);
   }
 
+  // =================================================================
+  // 2. LISTAR TODOS
+  // =================================================================
   findAll() {
-    // TypeORM automáticamente filtra los que tienen deletedAt != null
     return this.ingredienteRepository.find({ 
       order: { nombre_ingrediente: 'ASC' } 
     });
   }
 
+  // =================================================================
+  // 3. OBTENER UNO (CON COMPRAS)
+  // =================================================================
   async findOne(id: number) {
     const ingrediente = await this.ingredienteRepository.findOne({
       where: { id },
-      relations: ['compras'], // Para ver el historial de compras de este ingrediente
+      relations: ['compras'], 
     });
 
     if (!ingrediente) {
@@ -54,28 +71,41 @@ export class IngredientesService {
     return ingrediente;
   }
 
+  // =================================================================
+  // 4. ACTUALIZAR (RECALCULANDO KILOS Y PRECIOS)
+  // =================================================================
   async update(id: number, dto: UpdateIngredienteDto) {
-    const ingrediente = await this.ingredienteRepository.findOneBy({ id });
-    if (!ingrediente) throw new NotFoundException('Ingrediente no encontrado');
+    // Usamos preload para mezclar los datos viejos con los nuevos
+    const ingrediente = await this.ingredienteRepository.preload({
+      id: id,
+      ...dto,
+    });
 
-    // Actualizamos campos básicos
-    if (dto.nombre_ingrediente) ingrediente.nombre_ingrediente = dto.nombre_ingrediente;
-    if (dto.unidad_medida) ingrediente.unidad_medida = dto.unidad_medida;
-    if (dto.grupo) ingrediente.grupo = dto.grupo;
-    
-    // Si editan peso o precio manualmente (Ajuste de inventario)
-    if (dto.peso !== undefined) {
-      ingrediente.peso = dto.peso;
-      ingrediente.pesoKg = this.convertirAKg(dto.peso, ingrediente.unidad_medida);
+    if (!ingrediente) {
+      throw new NotFoundException(`Ingrediente con id ${id} no encontrado`);
     }
-    if (dto.precioKg !== undefined) ingrediente.precioKg = dto.precioKg;
 
-    return this.ingredienteRepository.save(ingrediente);
+    // LÓGICA DE RE-CALCULO DE INVENTARIO (PESO EN KG)
+    // Si cambiaron el peso, la unidad, o el peso de la unidad, hay que recalcular el total en Kg
+    if (dto.peso !== undefined || dto.unidad_medida !== undefined || dto.peso_unitario !== undefined) {
+      
+      // Si no viene en el DTO, usamos el que ya tenía la entidad
+      const pesoFinal = dto.peso !== undefined ? dto.peso : ingrediente.peso;
+      const unidadFinal = dto.unidad_medida || ingrediente.unidad_medida;
+      const pesoUnitarioFinal = dto.peso_unitario || ingrediente.peso_unitario;
+
+      ingrediente.pesoKg = this.convertirAKg(pesoFinal, unidadFinal, pesoUnitarioFinal);
+    }
+
+    // Al guardar, el hook @BeforeUpdate de la Entidad recalculará el 'precio_real'
+    // si cambió el precioKg o el rendimiento.
+    return await this.ingredienteRepository.save(ingrediente);
   }
 
-  // 👇 AQUÍ ESTÁ EL CAMBIO CLAVE
+  // =================================================================
+  // 5. ELIMINAR (SOFT DELETE)
+  // =================================================================
   async remove(id: number) {
-    // Usamos softDelete en lugar de delete/remove
     const result = await this.ingredienteRepository.softDelete(id);
 
     if (result.affected === 0) {
@@ -85,10 +115,29 @@ export class IngredientesService {
     return { mensaje: 'Ingrediente eliminado correctamente (se mantiene en histórico)' };
   }
 
-  private convertirAKg(peso: number, unidad: string): number {
-    const u = unidad.toLowerCase();
-    if (u === 'g' || u === 'gramos' || u === 'ml') return peso / 1000;
-    if (u === 'lb' || u === 'libras') return peso * 0.453592;
-    return peso; // kg, l, u
+  // =================================================================
+  // HELPER: CONVERSOR INTELIGENTE
+  // =================================================================
+  private convertirAKg(cantidad: number, unidad: string, pesoUnitario: number = 1): number {
+    const u = unidad.toLowerCase().trim();
+    
+    // 1. Unidades pequeñas
+    if (u === 'g' || u === 'gramos' || u === 'ml' || u === 'mililitros') {
+      return cantidad / 1000;
+    }
+    
+    // 2. Sistema Imperial
+    if (u === 'lb' || u === 'libras' || u === 'libra') {
+      return cantidad * 0.453592;
+    }
+
+    // 3. Unidades Abstractas (Atados, Unidades, Piezas)
+    // Aquí usamos el 'peso_unitario' que definimos en la Entidad
+    if (u === 'unidad' || u === 'unidades' || u === 'atado' || u === 'pieza' || u === 'caja') {
+      return cantidad * pesoUnitario;
+    }
+
+    // 4. Default: Kg, Litros (Se asume 1 a 1)
+    return cantidad; 
   }
 }

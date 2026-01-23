@@ -12,8 +12,7 @@ export class CreateRecetaIngredienteItemDto {
   @IsNumber()
   cantidad_usada: number;
 
-  // 👇 AQUÍ AGREGAMOS EL CAMPO NUEVO
-  // Esto permite recibir el precio "congelado" desde el Frontend
+  // Permite recibir el precio "congelado" (Costo Real) desde el Frontend
   @IsOptional() 
   @IsNumber()
   costo_historico?: number;
@@ -49,7 +48,16 @@ export class CreateRecetaDto {
   @IsNumber()
   costo_receta?: number;
 
-  // 👇 Aquí aceptamos el Array con la estructura nueva
+  // 👇 NUEVOS CAMPOS (Coinciden con el JSON del Frontend)
+  @IsOptional()
+  @IsNumber()
+  rentabilidad?: number;
+
+  @IsOptional()
+  @IsNumber()
+  precio_venta?: number;
+
+  // Lista de ingredientes
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

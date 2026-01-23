@@ -1,5 +1,5 @@
-// backend/src/ingredientes/dto/create-ingrediente.dto.ts
-import { IsNotEmpty, IsString, IsNumber, IsOptional } from 'class-validator';
+// src/ingredientes/dto/create-ingrediente.dto.ts
+import { IsNotEmpty, IsString, IsNumber, IsOptional, Min, Max } from 'class-validator';
 
 export class CreateIngredienteDto {
   @IsNotEmpty()
@@ -10,23 +10,26 @@ export class CreateIngredienteDto {
   @IsString()
   unidad_medida: string;
 
-  @IsNotEmpty()
-  @IsNumber()
-  precioKg: number;
-
+  // 👇 FALTABA ESTE: Cantidad comprada
   @IsNotEmpty()
   @IsNumber()
   peso: number;
 
   @IsOptional()
   @IsNumber()
-  pesoKg?: number;
+  peso_unitario?: number; 
 
   @IsNotEmpty()
-  @IsString()
-  grupo: string;
+  @IsNumber()
+  precioKg: number;
 
   @IsOptional()
   @IsNumber()
-  id_compra?: number;
+  @Min(1)
+  @Max(100)
+  rendimiento?: number; 
+  
+  @IsOptional()
+  @IsString()
+  grupo?: string;
 }
