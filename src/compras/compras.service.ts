@@ -17,7 +17,11 @@ export class ComprasService {
 
   async create(dto: CreateCompraDto) {
     // 1. Buscar el ingrediente que estamos comprando
-    const ingrediente = await this.ingredienteRepository.findOneBy({ id: dto.id_ingrediente });
+    // Nota: Usamos 'findOne' con where para asegurar compatibilidad
+    const ingrediente = await this.ingredienteRepository.findOne({ 
+      where: { id: dto.id_ingrediente } 
+    });
+    
     if (!ingrediente) throw new NotFoundException('Ingrediente no encontrado. Selecciona uno de la lista.');
 
     // 2. Crear el registro de compra
@@ -28,27 +32,36 @@ export class ComprasService {
     });
 
     // 3. 🚀 ACTUALIZACIÓN DE INVENTARIO (STOCK)
-    // A. Actualizamos el peso estandarizado (Kg)
-    ingrediente.pesoKg = Number(ingrediente.pesoKg) + Number(dto.peso_kg);
+    // Solo actualizamos el peso estandarizado (Kg), que es el que usa el sistema ahora.
+    // Usamos Number() para evitar concatenación de strings si vienen del JSON
+    const stockActual = Number(ingrediente.pesoKg) || 0;
+    const stockNuevo = Number(dto.peso_kg) || 0;
+    
+    ingrediente.pesoKg = stockActual + stockNuevo;
 
-    // B. Actualizamos el peso visual según la unidad del ingrediente (g, lb, kg...)
-    const cantidadAgregada = this.convertirKgAUnidad(dto.peso_kg, ingrediente.unidad_medida);
-    ingrediente.peso = Number(ingrediente.peso) + cantidadAgregada;
+    // ❌ ELIMINADO: Ya no actualizamos 'ingrediente.peso' porque ese campo fue reemplazado 
+    // por la lógica de Mermas (peso_bruto/neto) y Stock (pesoKg).
 
-    // 4. 💲 ACTUALIZACIÓN DE PRECIO
+    // 4. 💲 ACTUALIZACIÓN DE PRECIO PROMEDIO/ACTUAL
     // Si la compra trajo peso, actualizamos el precio/kg del ingrediente al valor de mercado actual
-    if (dto.peso_kg > 0) {
+    if (stockNuevo > 0) {
       // Precio Unitario = Costo Total / Cantidad en Kg
-      ingrediente.precioKg = Number(dto.costo_final) / Number(dto.peso_kg);
+      ingrediente.precioKg = Number(dto.costo_final) / stockNuevo;
     }
 
     // 5. Guardar cambios en ambas tablas
-    await this.ingredienteRepository.save(ingrediente); // Guardamos stock nuevo
-    return this.compraRepository.save(compra); // Guardamos la compra
+    // Al guardar el ingrediente, el @BeforeUpdate de la entidad recalculará 
+    // el 'precio_real' automáticamente basándose en el nuevo precioKg y la merma definida.
+    await this.ingredienteRepository.save(ingrediente); 
+    
+    return this.compraRepository.save(compra);
   }
 
   findAll() {
-    return this.compraRepository.find({ relations: ['proveedor', 'ingrediente'] });
+    return this.compraRepository.find({ 
+      relations: ['proveedor', 'ingrediente'],
+      order: { fecha_compra: 'DESC' }
+    });
   }
 
   findOne(id: number) {
@@ -56,14 +69,5 @@ export class ComprasService {
       where: { id },
       relations: ['proveedor', 'ingrediente']
     });
-  }
-
-  // 👇 Función auxiliar para convertir lo comprado (Kg) a la unidad del ingrediente
-  private convertirKgAUnidad(kilos: number, unidad: string): number {
-    const u = unidad.toLowerCase();
-    if (u === 'g' || u === 'gramos' || u === 'ml') return kilos * 1000;
-    if (u === 'lb' || u === 'libras') return kilos * 2.20462;
-    // Si es 'kg', 'l' o 'u', se suma directo
-    return kilos;
   }
 }

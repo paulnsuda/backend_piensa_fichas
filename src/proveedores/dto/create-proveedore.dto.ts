@@ -1,23 +1,25 @@
-import { IsNotEmpty, IsString, IsOptional, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max } from 'class-validator';
 
 export class CreateProveedorDto {
-  @IsNotEmpty()
   @IsString()
   nombre: string;
 
-  @IsOptional()
   @IsString()
+  @IsOptional() // Puede ser opcional
   contacto?: string;
 
-  @IsOptional()
+  // 👇 AGREGA ESTOS 3 CAMPOS NUEVOS
   @IsString()
-  telefono?: string;
-
   @IsOptional()
-  @IsEmail()
-  email?: string;
+  rubro?: string;
 
-  @IsOptional()
   @IsString()
-  direccion?: string;
+  @IsOptional()
+  frecuencia?: string;
+
+  @IsInt()
+  @IsOptional()
+  @Min(1)
+  @Max(5)
+  calificacion?: number;
 }

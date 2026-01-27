@@ -1,4 +1,3 @@
-// src/ingredientes/entities/ingrediente.entity.ts
 import { 
   Entity, 
   PrimaryGeneratedColumn, 
@@ -22,29 +21,42 @@ export class Ingrediente {
   @Column({ type: 'varchar', length: 50 })
   unidad_medida: string; 
 
-  // 👇 FALTABA ESTE: La cantidad que ingresa el usuario (Ej: 5 Libras)
-  @Column('decimal', { precision: 10, scale: 4 })
-  peso: number;
-
-  // 👇 FALTABA ESTE: El cálculo estandarizado (Ej: 2.26 Kg)
-  @Column('decimal', { precision: 10, scale: 4 })
-  pesoKg: number;
-
-  // Factor de conversión para unidades (Ej: 1 Unidad = 1.5 Kg)
+  // --- 1. DATOS DEL TEST DE RENDIMIENTO (MERMA) ---
   @Column('decimal', { precision: 10, scale: 4, default: 1 })
-  peso_unitario: number; 
+  peso_bruto: number; // Peso inicial del test
+
+  @Column('decimal', { precision: 10, scale: 4, default: 1 })
+  peso_neto: number;  // Peso útil tras limpieza
+
+  @Column('decimal', { precision: 10, scale: 4, default: 0 })
+  peso_desperdicio: number;
+
+  @Column('decimal', { precision: 10, scale: 4, default: 0 })
+  peso_subproducto: number;
+
+  // --- 2. DATOS DE INVENTARIO (STOCK) ---
+  // 👇 RESTAURADO: Este es el campo que 'compras' y 'app.service' buscaban
+  @Column('decimal', { precision: 10, scale: 4, default: 0 })
+  pesoKg: number; // Stock actual disponible en almacén (Estandarizado a KG/L)
+
+  // --- 3. COSTOS Y FACTORES ---
+  @Column('decimal', { precision: 10, scale: 4, default: 1 })
+  peso_unitario: number; // Factor de corrección (Bruto / Neto)
 
   @Column('decimal', { precision: 10, scale: 2 })
-  precioKg: number; // Precio de Mercado
+  precioKg: number; // Precio de Mercado (Bruto)
 
   @Column('decimal', { precision: 5, scale: 2, default: 100 })
-  rendimiento: number; // Merma %
+  rendimiento: number; // %
 
   @Column('decimal', { precision: 10, scale: 2 })
-  precio_real: number; // Costo Real (Calculado)
+  precio_real: number; // Costo Real (Limpio)
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   grupo: string;
+
+  @Column({ type: 'boolean', default: false })
+  es_preparacion: boolean;
 
   @DeleteDateColumn()
   deletedAt: Date;
@@ -55,11 +67,34 @@ export class Ingrediente {
   @OneToMany(() => RecetaIngrediente, (recetaIngrediente) => recetaIngrediente.ingrediente)
   recetasIngredientes: RecetaIngrediente[];
 
+  // --- CÁLCULOS AUTOMÁTICOS ---
   @BeforeInsert()
   @BeforeUpdate()
-  calcularPrecioReal() {
-    const porcentaje = (this.rendimiento && this.rendimiento > 0) ? this.rendimiento : 100;
-    const factor = porcentaje / 100;
-    this.precio_real = this.precioKg / factor;
+  calcularValores() {
+    const bruto = Number(this.peso_bruto) || 1;
+    const neto = Number(this.peso_neto) || 1;
+    const precioCompra = Number(this.precioKg) || 0;
+
+    // Rendimiento
+    if (bruto > 0) {
+      this.rendimiento = (neto / bruto) * 100;
+    } else {
+      this.rendimiento = 100;
+    }
+
+    // Factor Corrección
+    if (neto > 0) {
+      this.peso_unitario = bruto / neto;
+    } else {
+      this.peso_unitario = 1;
+    }
+
+    // Precio Real
+    this.precio_real = precioCompra * this.peso_unitario;
+
+    // Asegurar que pesoKg (Stock) tenga valor numérico por defecto si es nuevo
+    if (this.pesoKg === undefined || this.pesoKg === null) {
+      this.pesoKg = 0;
+    }
   }
 }

@@ -1,27 +1,27 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
-import { Compra } from '../../compras/entities/compra.entity';
+import { Column, Entity, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { Compra } from '../../compras/entities/compra.entity'; // Asegura la ruta correcta
 
-@Entity('proveedores')
+@Entity()
 export class Proveedor {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 100 })
+  @Column()
   nombre: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ nullable: true })
   contacto: string;
 
-  // 👇 CAMPOS NUEVOS (Que faltaban)
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  telefono: string;
+  // 👇 AGREGA ESTAS 3 COLUMNAS NUEVAS
+  @Column({ nullable: true })
+  rubro: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  email: string;
+  @Column({ nullable: true })
+  frecuencia: string;
 
-  @Column({ type: 'text', nullable: true })
-  direccion: string;
+  @Column({ default: 5 }) // Por defecto 5 estrellas
+  calificacion: number;
 
-  @OneToMany(() => Compra, compra => compra.proveedor)
+  @OneToMany(() => Compra, (compra) => compra.proveedor)
   compras: Compra[];
 }

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Receta } from './entities/receta.entity';
+import { Ingrediente } from '../ingredientes/entities/ingrediente.entity'; // 👈 IMPORTANTE: Importamos la entidad Ingrediente
 import { CreateRecetaDto } from './dto/create-receta.dto';
 import { UpdateRecetaDto } from './dto/update-receta.dto';
 
@@ -9,7 +10,11 @@ import { UpdateRecetaDto } from './dto/update-receta.dto';
 export class RecetasService {
   constructor(
     @InjectRepository(Receta)
-    private readonly recetaRepository: Repository<Receta>
+    private readonly recetaRepository: Repository<Receta>,
+
+    // 👇 INYECCIÓN NUEVA: Necesaria para poder guardar la Receta como Ingrediente
+    @InjectRepository(Ingrediente)
+    private readonly ingredienteRepository: Repository<Ingrediente>,
   ) {}
 
   // =================================================================
@@ -18,7 +23,6 @@ export class RecetasService {
   async create(dto: CreateRecetaDto, user: any) {
     const nueva = this.recetaRepository.create({
       // 🟢 MAPEO MANUAL (Frontend snake_case -> Backend camelCase)
-      
       nombreReceta: dto.nombre_receta,
       tipoPlato: dto.tipo_plato,
       numPorciones: dto.num_porciones,
@@ -26,9 +30,9 @@ export class RecetasService {
       procedimiento: dto.procedimiento,
       costoReceta: dto.costo_receta,
 
-      // 👇 NUEVOS CAMPOS (Lo que agregamos hoy)
-      rentabilidad: dto.rentabilidad,  // Mismo nombre
-      precioVenta: dto.precio_venta,   // Mapeo: precio_venta -> precioVenta
+      // 👇 NUEVOS CAMPOS
+      rentabilidad: dto.rentabilidad,
+      precioVenta: dto.precio_venta,
 
       // Relación de ingredientes (cascade: true hace el trabajo sucio)
       recetasIngredientes: dto.recetasIngredientes,
@@ -105,7 +109,7 @@ export class RecetasService {
     if (dto.tamano_porcion) datosActualizados.tamanoPorcion = dto.tamano_porcion;
     if (dto.procedimiento) datosActualizados.procedimiento = dto.procedimiento;
     
-    // 👇 NUEVOS CAMPOS EN UPDATE (Validamos que no sea undefined)
+    // 👇 NUEVOS CAMPOS EN UPDATE
     if (dto.rentabilidad !== undefined) datosActualizados.rentabilidad = dto.rentabilidad;
     if (dto.precio_venta !== undefined) datosActualizados.precioVenta = dto.precio_venta;
 
@@ -116,7 +120,7 @@ export class RecetasService {
 
     const receta = await this.recetaRepository.preload({
       id,
-      ...datosActualizados, // Usamos el objeto mapeado
+      ...datosActualizados, 
     });
 
     if (!receta) {
@@ -134,9 +138,67 @@ export class RecetasService {
     if (!receta) {
       throw new NotFoundException(`Receta con ID ${id} no encontrada`);
     }
-    // Usamos softRemove para mantener historial si es necesario, 
-    // o remove() físico si prefieres borrarlo del todo.
-    // Como tu entidad tiene @DeleteDateColumn, softRemove es lo ideal.
     return this.recetaRepository.softRemove(receta);
+  }
+
+  // =================================================================
+  // 7. 🔥 NUEVO: CONVERTIR RECETA EN SUB-FICHA (INGREDIENTE)
+  // =================================================================
+  async convertirEnIngrediente(id: number) {
+    // 1. Buscamos la receta completa con sus ingredientes para calcular pesos
+    const receta = await this.recetaRepository.findOne({
+      where: { id },
+      relations: ['recetasIngredientes', 'recetasIngredientes.ingrediente'],
+    });
+
+    if (!receta) throw new NotFoundException('Receta no encontrada');
+
+    // 2. Calculamos el Peso Total de la preparación (Suma de cantidades usadas)
+    // Esto es vital para saber cuánto pesa la "olla" final.
+    let pesoTotalPreparacion = 0;
+    
+    receta.recetasIngredientes.forEach((item) => {
+      // Sumamos la cantidad neta usada (asumiendo que está en Kg/Lt)
+      pesoTotalPreparacion += Number(item.cantidad_usada);
+    });
+
+    // Validación de seguridad para evitar divisiones por cero
+    if (pesoTotalPreparacion <= 0) pesoTotalPreparacion = 1;
+
+    // 3. Calculamos el Costo Real Total (Recalculamos por seguridad)
+    const costoTotal = receta.recetasIngredientes.reduce((acc, item) => {
+      // Usamos costo histórico si existe, si no, el precio actual del ingrediente
+      const precioCalculo = Number(item.costo_historico) > 0 
+          ? Number(item.costo_historico) 
+          : Number(item.ingrediente.precio_real);
+          
+      const costoItem = Number(item.cantidad_usada) * precioCalculo;
+      return acc + costoItem;
+    }, 0);
+
+    // 4. Calculamos precio por Kilo de la nueva "Subficha"
+    const precioPorKilo = costoTotal / pesoTotalPreparacion;
+
+    // 5. Creamos el ingrediente en la base de datos
+    const nuevoIngrediente = this.ingredienteRepository.create({
+      nombre_ingrediente: `${receta.nombreReceta} (Prep)`, // Sufijo para identificar
+      unidad_medida: 'kg', // Estandarizamos a Kg para subfichas
+      grupo: 'PREPARACIONES',
+      
+      // Costos calculados
+      precioKg: precioPorKilo, 
+      
+      // Como es producto terminado, no tiene merma inicial
+      peso_bruto: 1,
+      peso_neto: 1,
+      rendimiento: 100,
+      peso_unitario: 1,
+      precio_real: precioPorKilo,
+
+      // Marcamos que viene de una receta
+      es_preparacion: true, 
+    });
+
+    return await this.ingredienteRepository.save(nuevoIngrediente);
   }
 }
