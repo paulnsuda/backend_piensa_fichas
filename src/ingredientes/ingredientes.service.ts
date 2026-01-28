@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Ingrediente } from './entities/ingrediente.entity';
@@ -17,131 +17,148 @@ export class IngredientesService {
   ) {}
 
   // =================================================================
-  // 1. CREAR INGREDIENTE (CON LOGICA DE TEST DE MERMA)
+  // 1. CREAR INGREDIENTE (ASIGNANDO DUEÑO)
   // =================================================================
-  async create(dto: CreateIngredienteDto) {
+  async create(dto: CreateIngredienteDto, user: any) {
     
-    // 1. Mapeo de campos del Test de Rendimiento
-    // Si no vienen datos, asumimos valores neutros (sin merma)
     const pesoBruto = dto.peso_bruto || 1;
     const pesoNeto = dto.peso_neto || 1;
     const pesoDesperdicio = dto.peso_desperdicio || 0;
     const pesoSubproducto = dto.peso_subproducto || 0;
-
-    // 2. Cálculo inicial de STOCK (Inventario)
-    // Al crear un ingrediente, usualmente no hay stock hasta que se compra,
-    // pero si el usuario quiere iniciar con un valor, usamos 'pesoKg' o convertimos 'peso_bruto'.
-    // Estandarizamos: Si no envían stock explícito, iniciamos en 0.
     const stockInicial = 0; 
 
     const ingrediente = this.ingredienteRepository.create({
-      nombre_ingrediente: dto.nombre_ingrediente,
-      unidad_medida: dto.unidad_medida,
-      grupo: dto.grupo,
+      ...dto, // Copia todas las propiedades simples del DTO
       
-      // PRECIOS
-      precioKg: dto.precioKg,  // Precio Compra
-
-      // DATOS DE TRANSFORMACIÓN (LO NUEVO)
+      // CALCULOS DE MERMA
       peso_bruto: pesoBruto,
       peso_neto: pesoNeto,
       peso_desperdicio: pesoDesperdicio,
       peso_subproducto: pesoSubproducto,
-
-      // DATOS DE INVENTARIO
-      pesoKg: stockInicial, // El stock se alimenta con el módulo de COMPRAS
-      
-      // CALCULADOS (Se pueden pasar, pero el @BeforeInsert de la entidad tiene la última palabra)
+      pesoKg: stockInicial, 
       rendimiento: dto.rendimiento || 100,
       peso_unitario: dto.peso_unitario || (pesoNeto > 0 ? pesoBruto / pesoNeto : 1),
+
+      // 🔐 ASIGNACIÓN DE DUEÑO
+      // TypeORM enlazará esto con la columna usuario_id automáticamente
+      usuario: user 
     });
 
     return await this.ingredienteRepository.save(ingrediente);
   }
 
   // =================================================================
-  // 2. LISTAR TODOS
+  // 2. LISTAR (CON FILTRO DE SEGURIDAD)
   // =================================================================
-  findAll() {
+  findAll(user: any) {
+    // LÓGICA DE ROLES
+    // Si es Profesor (o admin), ve TODO.
+    // Ajusta 'profesor' según como se llame el rol en tu DB (ej: 'admin', 'docente')
+    if (user.rol === 'profesor' || user.rol === 'admin') {
+        return this.ingredienteRepository.find({ 
+            order: { nombre_ingrediente: 'ASC' } 
+        });
+    }
+
+    // Si es Alumno, solo ve SUS ingredientes
     return this.ingredienteRepository.find({ 
+      where: { usuario: { id: user.id } }, // Filtra por el usuario conectado
       order: { nombre_ingrediente: 'ASC' } 
     });
   }
 
   // =================================================================
-  // 3. OBTENER UNO (CON COMPRAS)
+  // 3. OBTENER UNO
   // =================================================================
-  async findOne(id: number) {
-    const ingrediente = await this.ingredienteRepository.findOne({
-      where: { id },
-      relations: ['compras'], 
-    });
+  async findOne(id: number, user: any) { // Añade 'user' si quieres proteger también la vista individual
+    const options: any = {
+        where: { id },
+        relations: ['compras'],
+    };
+
+    // Si no es profesor, forzamos que el usuario coincida
+    if (user.rol !== 'profesor' && user.rol !== 'admin') {
+        options.where.usuario = { id: user.id };
+    }
+
+    const ingrediente = await this.ingredienteRepository.findOne(options);
 
     if (!ingrediente) {
-      throw new NotFoundException(`Ingrediente con id ${id} no encontrado`);
+      throw new NotFoundException(`Ingrediente no encontrado o no tienes permiso para verlo`);
     }
 
     return ingrediente;
   }
 
   // =================================================================
-  // 4. ACTUALIZAR (RECALCULANDO TEST DE MERMA)
+  // 4. ACTUALIZAR (SOLO PROPIETARIO)
   // =================================================================
-  async update(id: number, dto: UpdateIngredienteDto) {
-    // Usamos preload para mezclar los datos viejos con los nuevos
-    const ingrediente = await this.ingredienteRepository.preload({
-      id: id,
-      ...dto, // TypeORM mapea automáticamente los campos coincidentes
+  async update(id: number, dto: UpdateIngredienteDto, user: any) {
+    // 1. Verificación de seguridad (manual)
+    const ingredienteOriginal = await this.ingredienteRepository.findOne({ 
+        where: { id }, 
+        relations: ['usuario'] 
     });
 
-    if (!ingrediente) {
-      throw new NotFoundException(`Ingrediente con id ${id} no encontrado`);
+    if (!ingredienteOriginal) {
+        throw new NotFoundException(`Ingrediente no encontrado`);
     }
 
-    // NOTA: No necesitamos recalcular manualmente aquí.
-    // Al hacer .save(), la entidad ejecuta @BeforeUpdate,
-    // tomando los nuevos peso_bruto/peso_neto y actualizando
-    // rendimiento, factor y precio_real automáticamente.
+    // Verificar si es dueño o profesor
+    const esProfesor = user.rol === 'profesor' || user.rol === 'admin';
+    const esDuenio = ingredienteOriginal.usuario && ingredienteOriginal.usuario.id === user.id;
 
-    return await this.ingredienteRepository.save(ingrediente);
+    if (!esProfesor && !esDuenio) {
+        throw new ForbiddenException('No tienes permiso para editar este ingrediente');
+    }
+
+    // 2. Preload: Mezcla los datos nuevos con los viejos
+    const ingredienteActualizado = await this.ingredienteRepository.preload({
+      id: id,
+      ...dto,
+    });
+
+    // 👇 ESTA ES LA CORRECCIÓN DEL ERROR
+    // TypeScript se quejaba porque 'ingredienteActualizado' podía ser undefined.
+    // Con este 'if', le garantizamos que si es undefined, lanzamos error y no llega al save.
+    if (!ingredienteActualizado) {
+      throw new NotFoundException(`Error al intentar actualizar el ingrediente`);
+    }
+
+    return await this.ingredienteRepository.save(ingredienteActualizado);
   }
 
   // =================================================================
-  // 5. ELIMINAR (SOFT DELETE)
+  // 5. ELIMINAR (SOLO PROPIETARIO)
   // =================================================================
-  async remove(id: number) {
-    const result = await this.ingredienteRepository.softDelete(id);
+  async remove(id: number, user: any) {
+    
+    // 1. Verificar propiedad antes de borrar
+    const ingrediente = await this.ingredienteRepository.findOne({ 
+        where: { id }, 
+        relations: ['usuario'] 
+    });
 
-    if (result.affected === 0) {
-      throw new NotFoundException(`Ingrediente con id ${id} no encontrado`);
+    if (!ingrediente) throw new NotFoundException('Ingrediente no encontrado');
+
+    const esProfesor = user.rol === 'profesor' || user.rol === 'admin';
+    const esDuenio = ingrediente.usuario && ingrediente.usuario.id === user.id;
+
+    if (!esProfesor && !esDuenio) {
+        throw new ForbiddenException('No tienes permiso para eliminar este ingrediente');
     }
 
+    // 2. Ejecutar borrado
+    const result = await this.ingredienteRepository.softDelete(id);
     return { mensaje: 'Ingrediente eliminado correctamente' };
   }
 
-  // =================================================================
-  // HELPER: CONVERSOR INTELIGENTE (UTILITARIO PARA OTROS MÓDULOS)
-  // =================================================================
-  // Dejamos este helper público por si ComprasService lo necesita
+  // ... helper convertirAKg sigue igual ...
   public convertirAKg(cantidad: number, unidad: string, pesoUnitario: number = 1): number {
     const u = unidad.toLowerCase().trim();
-    
-    // 1. Unidades pequeñas
-    if (u === 'g' || u === 'gramos' || u === 'ml' || u === 'mililitros') {
-      return cantidad / 1000;
-    }
-    
-    // 2. Sistema Imperial
-    if (u === 'lb' || u === 'libras' || u === 'libra') {
-      return cantidad * 0.453592;
-    }
-
-    // 3. Unidades Abstractas (Atados, Unidades, Piezas)
-    if (u === 'unidad' || u === 'unidades' || u === 'atado' || u === 'pieza' || u === 'caja') {
-      return cantidad * pesoUnitario;
-    }
-
-    // 4. Default: Kg, Litros (Se asume 1 a 1)
+    if (u === 'g' || u === 'gramos' || u === 'ml' || u === 'mililitros') return cantidad / 1000;
+    if (u === 'lb' || u === 'libras' || u === 'libra') return cantidad * 0.453592;
+    if (u === 'unidad' || u === 'unidades' || u === 'atado' || u === 'pieza' || u === 'caja') return cantidad * pesoUnitario;
     return cantidad; 
   }
 }

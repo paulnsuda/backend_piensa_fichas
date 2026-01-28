@@ -33,6 +33,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
       database: process.env.DB_DATABASE,
       autoLoadEntities: true,
       synchronize: true, 
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     }),
     // 👇 IMPORTANTE: Esto permite usar los repositorios en AppService
     TypeOrmModule.forFeature([Receta, Ingrediente, Compra]), 

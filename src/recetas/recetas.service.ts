@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Receta } from './entities/receta.entity';
-import { Ingrediente } from '../ingredientes/entities/ingrediente.entity'; // 👈 IMPORTANTE: Importamos la entidad Ingrediente
+import { Ingrediente } from '../ingredientes/entities/ingrediente.entity'; 
 import { CreateRecetaDto } from './dto/create-receta.dto';
 import { UpdateRecetaDto } from './dto/update-receta.dto';
 
@@ -12,191 +12,163 @@ export class RecetasService {
     @InjectRepository(Receta)
     private readonly recetaRepository: Repository<Receta>,
 
-    // 👇 INYECCIÓN NUEVA: Necesaria para poder guardar la Receta como Ingrediente
     @InjectRepository(Ingrediente)
     private readonly ingredienteRepository: Repository<Ingrediente>,
   ) {}
 
   // =================================================================
-  // 1. CREAR RECETA (CON RENTABILIDAD Y PRECIO VENTA)
+  // 1. CREAR RECETA (CON CONVERSIÓN DE TIPOS)
   // =================================================================
   async create(dto: CreateRecetaDto, user: any) {
     const nueva = this.recetaRepository.create({
-      // 🟢 MAPEO MANUAL (Frontend snake_case -> Backend camelCase)
+      // Mapeo Manual
       nombreReceta: dto.nombre_receta,
       tipoPlato: dto.tipo_plato,
-      numPorciones: dto.num_porciones,
-      tamanoPorcion: dto.tamano_porcion,
       procedimiento: dto.procedimiento,
-      costoReceta: dto.costo_receta,
+      
+      // 👇 CORRECCIÓN DEL ERROR: Forzamos la conversión a Número
+      numPorciones: Number(dto.num_porciones), 
+      tamanoPorcion: Number(dto.tamano_porcion), // Esto arregla el error "string is not assignable to number"
+      costoReceta: Number(dto.costo_receta),
+      rentabilidad: Number(dto.rentabilidad),
+      precioVenta: Number(dto.precio_venta),
 
-      // 👇 NUEVOS CAMPOS
-      rentabilidad: dto.rentabilidad,
-      precioVenta: dto.precio_venta,
-
-      // Relación de ingredientes (cascade: true hace el trabajo sucio)
       recetasIngredientes: dto.recetasIngredientes,
 
-      // Asignamos el usuario conectado
-      usuario: { id: user.userId } 
+      // Asignación de dueño
+      usuario: user 
     });
 
     return await this.recetaRepository.save(nueva);
   }
 
   // =================================================================
-  // 2. LISTAR RECETAS (SEGÚN ROL)
+  // 2. LISTAR RECETAS
   // =================================================================
   async findAll(user: any) {
-    if (!user) return [];
+    const relations = ['usuario']; 
+    const order: any = { id: 'DESC' };
 
     if (user.rol === 'profesor' || user.rol === 'admin') {
-      // Profesor ve todo
-      return this.recetaRepository.find({
-        order: { id: 'DESC' },
-        relations: ['usuario']
-      });
-    } else {
-      // Alumno ve solo lo suyo
-      return this.recetaRepository.find({
-        where: { usuario: { id: user.userId } },
-        order: { id: 'DESC' },
-        relations: ['usuario']
-      });
-    }
+      return this.recetaRepository.find({ order, relations });
+    } 
+
+    return this.recetaRepository.find({
+      where: { usuario: { id: user.id } },
+      order,
+      relations
+    });
   }
 
   // =================================================================
-  // 3. OBTENER UNA (FICHA TÉCNICA COMPLETA)
+  // 3. OBTENER UNA
   // =================================================================
-  async findOne(id: number) {
+  async findOne(id: number, user: any) {
     const receta = await this.recetaRepository.findOne({
       where: { id },
       relations: [
-        'recetasIngredientes',              // Tabla intermedia
-        'recetasIngredientes.ingrediente',  // Datos reales del ingrediente
+        'recetasIngredientes',
+        'recetasIngredientes.ingrediente',
         'usuario'
       ],
     });
 
-    if (!receta) {
-      throw new NotFoundException(`Receta con ID ${id} no encontrada`);
+    if (!receta) throw new NotFoundException(`Receta no encontrada`);
+
+    const esProfesor = user.rol === 'profesor' || user.rol === 'admin';
+    const esDuenio = receta.usuario && receta.usuario.id === user.id;
+
+    if (!esProfesor && !esDuenio) {
+        throw new ForbiddenException('No tienes permiso para ver esta receta');
     }
 
     return receta;
   }
 
   // =================================================================
-  // 4. LISTAR CON INGREDIENTES (AUXILIAR)
+  // 4. ACTUALIZAR
   // =================================================================
-  findAllConIngredientes() {
-    return this.recetaRepository.find({
-      relations: ['recetasIngredientes', 'recetasIngredientes.ingrediente'],
+  async update(id: number, dto: UpdateRecetaDto, user: any) {
+    const recetaOriginal = await this.recetaRepository.findOne({ 
+        where: { id }, 
+        relations: ['usuario'] 
     });
-  }
 
-  // =================================================================
-  // 5. ACTUALIZAR (CON MAPEO MANUAL TAMBIÉN)
-  // =================================================================
-  async update(id: number, dto: UpdateRecetaDto) {
-    // Creamos un objeto auxiliar mapeando los nombres
-    const datosActualizados: any = {};
-    
-    if (dto.nombre_receta) datosActualizados.nombreReceta = dto.nombre_receta;
-    if (dto.costo_receta) datosActualizados.costoReceta = dto.costo_receta;
-    if (dto.tipo_plato) datosActualizados.tipoPlato = dto.tipo_plato;
-    if (dto.num_porciones) datosActualizados.numPorciones = dto.num_porciones;
-    if (dto.tamano_porcion) datosActualizados.tamanoPorcion = dto.tamano_porcion;
-    if (dto.procedimiento) datosActualizados.procedimiento = dto.procedimiento;
-    
-    // 👇 NUEVOS CAMPOS EN UPDATE
-    if (dto.rentabilidad !== undefined) datosActualizados.rentabilidad = dto.rentabilidad;
-    if (dto.precio_venta !== undefined) datosActualizados.precioVenta = dto.precio_venta;
+    if (!recetaOriginal) throw new NotFoundException(`Receta no encontrada`);
 
-    // Si vienen ingredientes nuevos
-    if (dto.recetasIngredientes) {
-      datosActualizados.recetasIngredientes = dto.recetasIngredientes;
+    const esProfesor = user.rol === 'profesor' || user.rol === 'admin';
+    const esDuenio = recetaOriginal.usuario && recetaOriginal.usuario.id === user.id;
+
+    if (!esProfesor && !esDuenio) {
+        throw new ForbiddenException('No tienes permiso para editar esta receta');
     }
+
+    // Preparar actualización con conversiones seguras
+    const datosActualizados: any = {};
+    if (dto.nombre_receta) datosActualizados.nombreReceta = dto.nombre_receta;
+    if (dto.tipo_plato) datosActualizados.tipoPlato = dto.tipo_plato;
+    if (dto.procedimiento) datosActualizados.procedimiento = dto.procedimiento;
+
+    // 👇 CONVERSIONES TAMBIÉN AQUÍ
+    if (dto.costo_receta !== undefined) datosActualizados.costoReceta = Number(dto.costo_receta);
+    if (dto.num_porciones !== undefined) datosActualizados.numPorciones = Number(dto.num_porciones);
+    if (dto.tamano_porcion !== undefined) datosActualizados.tamanoPorcion = Number(dto.tamano_porcion);
+    if (dto.rentabilidad !== undefined) datosActualizados.rentabilidad = Number(dto.rentabilidad);
+    if (dto.precio_venta !== undefined) datosActualizados.precioVenta = Number(dto.precio_venta);
+
+    if (dto.recetasIngredientes) datosActualizados.recetasIngredientes = dto.recetasIngredientes;
 
     const receta = await this.recetaRepository.preload({
       id,
       ...datosActualizados, 
     });
 
-    if (!receta) {
-      throw new NotFoundException(`Receta con ID ${id} no encontrada`);
-    }
+    if (!receta) throw new NotFoundException(`Error al actualizar`);
 
     return this.recetaRepository.save(receta);
   }
 
   // =================================================================
-  // 6. ELIMINAR (SOFT DELETE)
+  // 5. ELIMINAR
   // =================================================================
-  async remove(id: number) {
-    const receta = await this.recetaRepository.findOneBy({ id });
-    if (!receta) {
-      throw new NotFoundException(`Receta con ID ${id} no encontrada`);
-    }
+  async remove(id: number, user: any) {
+    const receta = await this.findOne(id, user); 
     return this.recetaRepository.softRemove(receta);
   }
 
   // =================================================================
-  // 7. 🔥 NUEVO: CONVERTIR RECETA EN SUB-FICHA (INGREDIENTE)
+  // 6. CONVERTIR EN INGREDIENTE
   // =================================================================
-  async convertirEnIngrediente(id: number) {
-    // 1. Buscamos la receta completa con sus ingredientes para calcular pesos
-    const receta = await this.recetaRepository.findOne({
-      where: { id },
-      relations: ['recetasIngredientes', 'recetasIngredientes.ingrediente'],
-    });
+  async convertirEnIngrediente(id: number, user: any) {
+    const receta = await this.findOne(id, user);
 
-    if (!receta) throw new NotFoundException('Receta no encontrada');
-
-    // 2. Calculamos el Peso Total de la preparación (Suma de cantidades usadas)
-    // Esto es vital para saber cuánto pesa la "olla" final.
     let pesoTotalPreparacion = 0;
-    
     receta.recetasIngredientes.forEach((item) => {
-      // Sumamos la cantidad neta usada (asumiendo que está en Kg/Lt)
       pesoTotalPreparacion += Number(item.cantidad_usada);
     });
-
-    // Validación de seguridad para evitar divisiones por cero
     if (pesoTotalPreparacion <= 0) pesoTotalPreparacion = 1;
 
-    // 3. Calculamos el Costo Real Total (Recalculamos por seguridad)
     const costoTotal = receta.recetasIngredientes.reduce((acc, item) => {
-      // Usamos costo histórico si existe, si no, el precio actual del ingrediente
       const precioCalculo = Number(item.costo_historico) > 0 
           ? Number(item.costo_historico) 
           : Number(item.ingrediente.precio_real);
-          
-      const costoItem = Number(item.cantidad_usada) * precioCalculo;
-      return acc + costoItem;
+      return acc + (Number(item.cantidad_usada) * precioCalculo);
     }, 0);
 
-    // 4. Calculamos precio por Kilo de la nueva "Subficha"
     const precioPorKilo = costoTotal / pesoTotalPreparacion;
 
-    // 5. Creamos el ingrediente en la base de datos
     const nuevoIngrediente = this.ingredienteRepository.create({
-      nombre_ingrediente: `${receta.nombreReceta} (Prep)`, // Sufijo para identificar
-      unidad_medida: 'kg', // Estandarizamos a Kg para subfichas
+      nombre_ingrediente: `${receta.nombreReceta} (Prep)`,
+      unidad_medida: 'kg', 
       grupo: 'PREPARACIONES',
-      
-      // Costos calculados
       precioKg: precioPorKilo, 
-      
-      // Como es producto terminado, no tiene merma inicial
       peso_bruto: 1,
       peso_neto: 1,
       rendimiento: 100,
       peso_unitario: 1,
       precio_real: precioPorKilo,
-
-      // Marcamos que viene de una receta
-      es_preparacion: true, 
+      es_preparacion: true,
+      usuario: user 
     });
 
     return await this.ingredienteRepository.save(nuevoIngrediente);

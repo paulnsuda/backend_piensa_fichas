@@ -23,11 +23,12 @@ export class Receta {
   @Column({ name: 'tipo_plato', nullable: true })
   tipoPlato: string;
 
-  @Column({ name: 'num_porciones', type: 'int', nullable: true })
+  @Column({ name: 'num_porciones', type: 'int', default: 1 })
   numPorciones: number;
 
-  @Column({ name: 'tamano_porcion', nullable: true })
-  tamanoPorcion: string;
+  // ⚠️ MEJORA: Cambiado de string a decimal para cálculos matemáticos
+  @Column({ name: 'tamano_porcion', type: 'decimal', precision: 10, scale: 2, default: 0 })
+  tamanoPorcion: number; 
 
   @Column({ type: 'text', nullable: true })
   procedimiento: string;
@@ -36,12 +37,11 @@ export class Receta {
   @Column({ name: 'costo_receta', type: 'decimal', precision: 10, scale: 2, default: 0 })
   costoReceta: number;
 
-  // 👇 NUEVO CAMPO 1: Rentabilidad Deseada (%)
+  // Rentabilidad Deseada (%)
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 30 })
   rentabilidad: number;
 
-  // 👇 NUEVO CAMPO 2: Precio de Venta Sugerido
-  // Propiedad 'precioVenta' <-> Columna BD 'precio_venta'
+  // Precio de Venta Sugerido
   @Column({ name: 'precio_venta', type: 'decimal', precision: 10, scale: 2, default: 0 })
   precioVenta: number;
 
@@ -51,13 +51,15 @@ export class Receta {
   @DeleteDateColumn()
   deletedAt: Date;
 
-  // RELACIONES
+  // --- RELACIONES ---
+
   @OneToMany(() => RecetaIngrediente, (recetaIngrediente) => recetaIngrediente.receta, {
-    cascade: true, // Vital para guardar los ingredientes junto con la receta
+    cascade: true, 
   })
   recetasIngredientes: RecetaIngrediente[];
 
-  @ManyToOne(() => User, (user) => user.recetas)
-  @JoinColumn({ name: 'usuario_id' })
+  // 👇 ESTO ES LO CRUCIAL PARA LA SEGURIDAD 👇
+  @ManyToOne(() => User, (user) => user.recetas, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'usuario_id' }) // Conecta con la columna SQL que creamos
   usuario: User;
 }

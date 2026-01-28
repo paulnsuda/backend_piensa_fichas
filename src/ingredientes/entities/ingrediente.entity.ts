@@ -5,10 +5,13 @@ import {
   OneToMany, 
   DeleteDateColumn, 
   BeforeInsert, 
-  BeforeUpdate 
+  BeforeUpdate,
+  ManyToOne,   // 👈 Importante
+  JoinColumn   // 👈 Importante
 } from 'typeorm';
 import { Compra } from '../../compras/entities/compra.entity';
 import { RecetaIngrediente } from '../../recetas_ingredientes/entities/receta_ingrediente.entity';
+import { User } from '../../users/entities/user.entity'; // 👈 Asegúrate que la ruta sea correcta
 
 @Entity('ingredientes')
 export class Ingrediente {
@@ -23,10 +26,10 @@ export class Ingrediente {
 
   // --- 1. DATOS DEL TEST DE RENDIMIENTO (MERMA) ---
   @Column('decimal', { precision: 10, scale: 4, default: 1 })
-  peso_bruto: number; // Peso inicial del test
+  peso_bruto: number;
 
   @Column('decimal', { precision: 10, scale: 4, default: 1 })
-  peso_neto: number;  // Peso útil tras limpieza
+  peso_neto: number;
 
   @Column('decimal', { precision: 10, scale: 4, default: 0 })
   peso_desperdicio: number;
@@ -35,22 +38,21 @@ export class Ingrediente {
   peso_subproducto: number;
 
   // --- 2. DATOS DE INVENTARIO (STOCK) ---
-  // 👇 RESTAURADO: Este es el campo que 'compras' y 'app.service' buscaban
   @Column('decimal', { precision: 10, scale: 4, default: 0 })
-  pesoKg: number; // Stock actual disponible en almacén (Estandarizado a KG/L)
+  pesoKg: number; 
 
   // --- 3. COSTOS Y FACTORES ---
   @Column('decimal', { precision: 10, scale: 4, default: 1 })
-  peso_unitario: number; // Factor de corrección (Bruto / Neto)
+  peso_unitario: number; // Factor de corrección
 
   @Column('decimal', { precision: 10, scale: 2 })
-  precioKg: number; // Precio de Mercado (Bruto)
+  precioKg: number; // Precio de Mercado
 
   @Column('decimal', { precision: 5, scale: 2, default: 100 })
   rendimiento: number; // %
 
   @Column('decimal', { precision: 10, scale: 2 })
-  precio_real: number; // Costo Real (Limpio)
+  precio_real: number; // Costo Real
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   grupo: string;
@@ -61,11 +63,19 @@ export class Ingrediente {
   @DeleteDateColumn()
   deletedAt: Date;
 
+  // --- RELACIONES ---
+
   @OneToMany(() => Compra, (compra) => compra.ingrediente)
   compras: Compra[];
 
   @OneToMany(() => RecetaIngrediente, (recetaIngrediente) => recetaIngrediente.ingrediente)
   recetasIngredientes: RecetaIngrediente[];
+
+  // 👇 ESTO ES LO NUEVO (MULTI-TENENCIA) 👇
+  // Conecta el ingrediente con la tabla 'user' usando la columna 'usuario_id' que creamos en SQL
+  @ManyToOne(() => User, (user) => user.ingredientes, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'usuario_id' })
+  usuario: User;
 
   // --- CÁLCULOS AUTOMÁTICOS ---
   @BeforeInsert()
@@ -92,7 +102,7 @@ export class Ingrediente {
     // Precio Real
     this.precio_real = precioCompra * this.peso_unitario;
 
-    // Asegurar que pesoKg (Stock) tenga valor numérico por defecto si es nuevo
+    // Asegurar stock inicial
     if (this.pesoKg === undefined || this.pesoKg === null) {
       this.pesoKg = 0;
     }
