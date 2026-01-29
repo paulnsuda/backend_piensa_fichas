@@ -10,7 +10,7 @@ async function bootstrap() {
   // ------------------------------------------------------------------
   const allowedOrigins = [
     'http://localhost:4200',                     // Angular local
-    'https://frontend-piensa-fichas.vercel.app'  // Dominio en Vercel
+    'frontend-piensa-ficha-am420g374-paulnarvis-projects.vercel.app'  // Dominio en Vercel
   ];
 
   app.enableCors({
