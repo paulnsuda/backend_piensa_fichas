@@ -6,31 +6,44 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // ------------------------------------------------------------------
-  // CORS
+  // CORS OPTIMIZADO
   // ------------------------------------------------------------------
   const allowedOrigins = [
-    'http://localhost:4200',                     // Angular local
-    'https://frontend-piensa-fichas.vercel.app'  // Dominio en Vercel
+    'http://localhost:4200',
+    'https://frontend-piensa-fichas.vercel.app',
+    // Se recomienda agregar la URL de producción de Vercel completa si persiste el error
+    'https://frontend-piensa-fichas-paulnsudas-projects.vercel.app'
   ];
 
   app.enableCors({
-    // Usamos siempre la lista explícita para evitar conflictos con 'credentials: true'
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // Permite peticiones sin origen (como herramientas de servidor o Postman) 
+      // y valida contra nuestra lista blanca.
+      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('Bloqueado por CORS: Origen no permitido'));
+      }
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    allowedHeaders: 'Content-Type, Accept, Authorization',
   });
 
   // ------------------------------------------------------------------
-  // VALIDACIONES GLOBALES (Necesario para que @IsEmail funcione)
+  // VALIDACIONES GLOBALES
   // ------------------------------------------------------------------
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
+      transform: true, // Importante para que los IDs de las rutas se conviertan a números automáticamente
     }),
   );
 
-  // Escucha en el puerto 3000
-  await app.listen(process.env.PORT || 3000);
+  // Configuración de puerto para Railway
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  console.log(`🚀 Backend corriendo en el puerto: ${port}`);
 }
 bootstrap();
